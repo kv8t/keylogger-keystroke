@@ -11,3 +11,5 @@ what does this logs:
 
 website visits ┃ users clipbord ┃ user messages ┃ everytime users clicks anything ┃ and more activity 
 (didn't figure to add a kill switch so the only way this can be turned off is the webhook gets deleted or the user deletes the file themselfs)
+
+and ofcourse your gonna need the pyhton pip requirements (didn't care to list them but if you know what you're doing then have fun)

